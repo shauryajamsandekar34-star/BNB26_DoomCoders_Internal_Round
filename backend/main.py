@@ -28,7 +28,7 @@ app.add_middleware(
 # --------------------------------------------------
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-OLLAMA_MODEL = "qwen2.5:3b"
+OLLAMA_MODEL = "translategemma:4b"
 
 
 # --------------------------------------------------
