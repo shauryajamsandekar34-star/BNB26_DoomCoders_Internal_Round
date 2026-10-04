@@ -31,7 +31,9 @@ OLLAMA_URL = os.getenv(
     "OLLAMA_URL",
     "http://127.0.0.1:11434/api/generate"
 )
+
 OLLAMA_TOKEN = os.getenv("OLLAMA_TOKEN", "")
+
 OLLAMA_MODEL = "translategemma:4b"
 
 
@@ -78,7 +80,11 @@ async def translate_text(
     if source_language == target_language:
         return text
 
-    cache_key = f"{source_language}:{target_language}:{text.lower()}"
+    cache_key = (
+        f"{source_language}:"
+        f"{target_language}:"
+        f"{text.lower()}"
+    )
 
     if cache_key in translation_cache:
         return translation_cache[cache_key]
@@ -120,48 +126,69 @@ Text:
 {text}
 """.strip()
 
-
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
 
-            headers = {}
+        headers = {}
 
-if OLLAMA_TOKEN:
-    headers["Authorization"] = f"Bearer {OLLAMA_TOKEN}"
+        if OLLAMA_TOKEN:
+            headers["Authorization"] = (
+                f"Bearer {OLLAMA_TOKEN}"
+            )
 
-response = await client.post(
-    OLLAMA_URL,
-    headers=headers,
-    json={
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"temperature": 0.1},
-    },
-)
+        async with httpx.AsyncClient(
+            timeout=90.0
+        ) as client:
 
-        print("Ollama response:", response.status_code)
+            response = await client.post(
+                OLLAMA_URL,
+                headers=headers,
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.1
+                    },
+                },
+            )
+
+        print(
+            "Ollama response:",
+            response.status_code
+        )
 
         if response.status_code != 200:
-            print("Ollama error:", response.text)
+
+            print(
+                "Ollama error:",
+                response.text
+            )
+
             return text
 
         data = response.json()
 
         translated_text = data.get(
             "response",
-            "",
+            ""
         ).strip()
 
         if not translated_text:
-            print("Ollama returned empty translation")
+
+            print(
+                "Ollama returned empty translation"
+            )
+
             return text
 
-        translation_cache[cache_key] = translated_text
+        translation_cache[
+            cache_key
+        ] = translated_text
 
         print(
-            f"Translated [{source_language} -> "
-            f"{target_language}]: {text} -> {translated_text}"
+            f"Translated "
+            f"[{source_language} -> {target_language}]: "
+            f"{text} -> {translated_text}"
         )
 
         return translated_text
@@ -170,7 +197,7 @@ response = await client.post(
 
         print(
             "Ollama translation error:",
-            repr(exc),
+            repr(exc)
         )
 
         return text
@@ -182,6 +209,7 @@ response = await client.post(
 
 @app.get("/health")
 async def health():
+
     return {
         "status": "ok",
         "ollama_model": OLLAMA_MODEL,
@@ -224,7 +252,9 @@ async def ollama_status():
 
     try:
 
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with httpx.AsyncClient(
+            timeout=5
+        ) as client:
 
             response = await client.get(
                 "http://127.0.0.1:11434/api/tags"
@@ -241,7 +271,10 @@ async def ollama_status():
 
         models = [
             model.get("name")
-            for model in data.get("models", [])
+            for model in data.get(
+                "models",
+                []
+            )
         ]
 
         return {
@@ -287,33 +320,41 @@ async def broadcast(
 
     disconnected = []
 
-    for client_id, websocket in room["connections"].items():
+    for client_id, websocket in room[
+        "connections"
+    ].items():
 
         if client_id == exclude_client:
             continue
 
         try:
 
-            await websocket.send_json(message)
+            await websocket.send_json(
+                message
+            )
 
         except Exception:
 
-            disconnected.append(client_id)
+            disconnected.append(
+                client_id
+            )
 
     for client_id in disconnected:
 
         room["connections"].pop(
             client_id,
-            None,
+            None
         )
 
         room["participants"].pop(
             client_id,
-            None,
+            None
         )
 
 
-async def send_participants(room_code: str):
+async def send_participants(
+    room_code: str
+):
 
     room = rooms.get(room_code)
 
@@ -322,7 +363,9 @@ async def send_participants(room_code: str):
 
     participants = []
 
-    for client_id, participant in room["participants"].items():
+    for client_id, participant in room[
+        "participants"
+    ].items():
 
         participants.append({
             "client_id": client_id,
@@ -368,16 +411,22 @@ async def websocket_endpoint(
         "en",
     )
 
-    caption_language = websocket.query_params.get(
-        "caption_language",
-        "en",
+    caption_language = (
+        websocket.query_params.get(
+            "caption_language",
+            "en",
+        )
     )
 
     room = get_room(room_code)
 
-    room["connections"][client_id] = websocket
+    room["connections"][
+        client_id
+    ] = websocket
 
-    room["participants"][client_id] = {
+    room["participants"][
+        client_id
+    ] = {
         "name": name,
         "language": language,
         "caption_language": caption_language,
@@ -398,13 +447,17 @@ async def websocket_endpoint(
         "room": room_code,
     })
 
-    await send_participants(room_code)
+    await send_participants(
+        room_code
+    )
 
     try:
 
         while True:
 
-            message = await websocket.receive_json()
+            message = (
+                await websocket.receive_json()
+            )
 
             message_type = message.get(
                 "type",
@@ -424,11 +477,13 @@ async def websocket_endpoint(
                 if participant:
 
                     if message.get("name"):
+
                         participant["name"] = (
                             message["name"]
                         )
 
                     if message.get("language"):
+
                         participant["language"] = (
                             message["language"]
                         )
@@ -436,6 +491,7 @@ async def websocket_endpoint(
                     if message.get(
                         "caption_language"
                     ):
+
                         participant[
                             "caption_language"
                         ] = message[
@@ -472,13 +528,17 @@ async def websocket_endpoint(
                 if not participant:
                     continue
 
-                source_language = message.get(
-                    "source_language",
-                    participant["language"],
+                source_language = (
+                    message.get(
+                        "source_language",
+                        participant["language"],
+                    )
                 )
 
                 caption_id = (
-                    message.get("caption_id")
+                    message.get(
+                        "caption_id"
+                    )
                     or str(uuid.uuid4())
                 )
 
@@ -493,18 +553,23 @@ async def websocket_endpoint(
                     ).isoformat()
 
                 # --------------------------------------
-                # Send the caption separately to every
+                # Send caption separately to every
                 # participant using their preferred
                 # caption language.
                 # --------------------------------------
 
-                for target_client_id, target_socket in list(
+                for (
+                    target_client_id,
+                    target_socket
+                ) in list(
                     room["connections"].items()
                 ):
 
                     target_participant = room[
                         "participants"
-                    ].get(target_client_id)
+                    ].get(
+                        target_client_id
+                    )
 
                     if not target_participant:
                         continue
@@ -515,10 +580,12 @@ async def websocket_endpoint(
                         ]
                     )
 
-                    translated_text = await translate_text(
-                        text,
-                        source_language,
-                        target_language,
+                    translated_text = (
+                        await translate_text(
+                            text,
+                            source_language,
+                            target_language,
+                        )
                     )
 
                     outgoing = {
@@ -528,8 +595,12 @@ async def websocket_endpoint(
                         "speaker": participant[
                             "name"
                         ],
-                        "source_language": source_language,
-                        "target_language": target_language,
+                        "source_language": (
+                            source_language
+                        ),
+                        "target_language": (
+                            target_language
+                        ),
                         "original_text": text,
                         "text": translated_text,
                         "timestamp": timestamp,
@@ -545,7 +616,7 @@ async def websocket_endpoint(
 
                         print(
                             "Caption send error:",
-                            repr(exc),
+                            repr(exc)
                         )
 
             # ------------------------------------------
@@ -607,19 +678,19 @@ async def websocket_endpoint(
 
         print(
             "WebSocket error:",
-            repr(exc),
+            repr(exc)
         )
 
     finally:
 
         room["connections"].pop(
             client_id,
-            None,
+            None
         )
 
         room["participants"].pop(
             client_id,
-            None,
+            None
         )
 
         if room["connections"]:
@@ -632,7 +703,7 @@ async def websocket_endpoint(
 
             rooms.pop(
                 room_code,
-                None,
+                None
             )
 
 
