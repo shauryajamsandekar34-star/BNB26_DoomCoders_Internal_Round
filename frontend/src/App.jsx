@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-const WS_URL = "ws://localhost:8000/ws";
-
+const WS_URL = "wss://roundtable-backend-nzjg.onrender.com/ws";
 const LANGUAGES = [
   { code: "en", speech: "en-IN", label: "English" },
   { code: "hi", speech: "hi-IN", label: "Hindi" },
