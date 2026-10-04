@@ -32,7 +32,10 @@ OLLAMA_URL = os.getenv(
     "http://127.0.0.1:11434/api/generate"
 )
 
-OLLAMA_TOKEN = os.getenv("OLLAMA_TOKEN", "")
+OLLAMA_TOKEN = os.getenv(
+    "OLLAMA_TOKEN",
+    ""
+)
 
 OLLAMA_MODEL = "translategemma:4b"
 
@@ -44,6 +47,8 @@ OLLAMA_MODEL = "translategemma:4b"
 rooms: Dict[str, Dict[str, Any]] = {}
 
 translation_cache: Dict[str, str] = {}
+
+last_translation_error = ""
 
 
 # --------------------------------------------------
@@ -71,6 +76,8 @@ async def translate_text(
     source_language: str,
     target_language: str,
 ) -> str:
+
+    global last_translation_error
 
     text = text.strip()
 
@@ -104,19 +111,18 @@ You are a professional real-time translator.
 
 Translate the complete conversation caption from {source_name} to {target_name}.
 
-Strict rules:
-- Translate the ENTIRE sentence.
-- Do not leave words from the source language untranslated.
-- Do not copy unfamiliar words into the output just because you do not recognize them.
-- Preserve the meaning and context of the complete sentence.
-- Preserve people's names exactly.
-- Preserve numbers and important technical terms when appropriate.
-- If the input contains mixed languages, translate all understandable words into the target language.
+Rules:
+- Translate the complete sentence.
+- Do not leave source-language words untranslated unless they are proper names.
+- Preserve people's names.
+- Preserve numbers.
+- Preserve important technical terms when appropriate.
+- Preserve the original meaning.
 - Use natural conversational language.
 - Do not explain the translation.
 - Do not answer the speaker.
 - Do not add information.
-- Return ONLY the final translated sentence.
+- Return ONLY the translated sentence.
 - Do not use quotation marks.
 
 Source language: {source_name}
@@ -128,12 +134,27 @@ Text:
 
     try:
 
-        headers = {}
+        headers = {
+            "Content-Type": "application/json"
+        }
 
         if OLLAMA_TOKEN:
+
             headers["Authorization"] = (
                 f"Bearer {OLLAMA_TOKEN}"
             )
+
+        print("--------------------------------")
+        print("TRANSLATION REQUEST")
+        print("URL:", OLLAMA_URL)
+        print("MODEL:", OLLAMA_MODEL)
+        print(
+            "LANGUAGE:",
+            source_language,
+            "->",
+            target_language
+        )
+        print("TEXT:", text)
 
         async with httpx.AsyncClient(
             timeout=90.0
@@ -153,50 +174,137 @@ Text:
             )
 
         print(
-            "Ollama response:",
+            "OLLAMA STATUS:",
             response.status_code
         )
 
         if response.status_code != 200:
 
+            error_message = (
+                f"Ollama HTTP "
+                f"{response.status_code}: "
+                f"{response.text[:500]}"
+            )
+
+            last_translation_error = (
+                error_message
+            )
+
             print(
-                "Ollama error:",
-                response.text
+                "OLLAMA ERROR:",
+                error_message
             )
 
             return text
 
-        data = response.json()
+        try:
 
-        translated_text = data.get(
-            "response",
-            ""
+            data = response.json()
+
+        except Exception as exc:
+
+            error_message = (
+                "Invalid JSON from Ollama: "
+                + repr(exc)
+            )
+
+            last_translation_error = (
+                error_message
+            )
+
+            print(
+                error_message
+            )
+
+            return text
+
+        translated_text = str(
+            data.get(
+                "response",
+                ""
+            )
         ).strip()
 
         if not translated_text:
 
+            error_message = (
+                "Ollama returned empty response"
+            )
+
+            last_translation_error = (
+                error_message
+            )
+
             print(
-                "Ollama returned empty translation"
+                error_message
             )
 
             return text
+
+        # Remove accidental surrounding quotes
+        if (
+            len(translated_text) >= 2
+            and translated_text[0] == '"'
+            and translated_text[-1] == '"'
+        ):
+
+            translated_text = (
+                translated_text[1:-1]
+                .strip()
+            )
 
         translation_cache[
             cache_key
         ] = translated_text
 
+        last_translation_error = ""
+
         print(
-            f"Translated "
-            f"[{source_language} -> {target_language}]: "
-            f"{text} -> {translated_text}"
+            "TRANSLATION SUCCESS:",
+            translated_text
         )
+
+        print("--------------------------------")
 
         return translated_text
 
-    except Exception as exc:
+    except httpx.TimeoutException as exc:
+
+        last_translation_error = (
+            "Ollama request timed out: "
+            + repr(exc)
+        )
 
         print(
-            "Ollama translation error:",
+            "TRANSLATION TIMEOUT:",
+            repr(exc)
+        )
+
+        return text
+
+    except httpx.ConnectError as exc:
+
+        last_translation_error = (
+            "Could not connect to Ollama: "
+            + repr(exc)
+        )
+
+        print(
+            "TRANSLATION CONNECTION ERROR:",
+            repr(exc)
+        )
+
+        return text
+
+    except Exception as exc:
+
+        last_translation_error = (
+            "Translation exception: "
+            + repr(exc)
+        )
+
+        print(
+            "TRANSLATION ERROR:",
             repr(exc)
         )
 
@@ -213,6 +321,10 @@ async def health():
     return {
         "status": "ok",
         "ollama_model": OLLAMA_MODEL,
+        "ollama_url_configured": bool(OLLAMA_URL),
+        "ollama_token_configured": bool(
+            OLLAMA_TOKEN
+        ),
         "rooms": len(rooms),
     }
 
@@ -240,6 +352,30 @@ async def test_translation(
         "target_language": target,
         "translation": translated,
         "translated": translated != text,
+        "error": last_translation_error or None,
+    }
+
+
+# --------------------------------------------------
+# TRANSLATION STATUS
+# --------------------------------------------------
+
+@app.get("/translation-status")
+async def translation_status():
+
+    return {
+        "ollama_url": OLLAMA_URL,
+        "model": OLLAMA_MODEL,
+        "token_configured": bool(
+            OLLAMA_TOKEN
+        ),
+        "last_error": (
+            last_translation_error
+            or None
+        ),
+        "cache_entries": len(
+            translation_cache
+        ),
     }
 
 
@@ -465,7 +601,7 @@ async def websocket_endpoint(
             )
 
             # ------------------------------------------
-            # UPDATE PARTICIPANT SETTINGS
+            # SETTINGS
             # ------------------------------------------
 
             if message_type == "settings":
@@ -503,7 +639,7 @@ async def websocket_endpoint(
                 )
 
             # ------------------------------------------
-            # LIVE CAPTION
+            # CAPTION
             # ------------------------------------------
 
             elif message_type in (
@@ -553,9 +689,7 @@ async def websocket_endpoint(
                     ).isoformat()
 
                 # --------------------------------------
-                # Send caption separately to every
-                # participant using their preferred
-                # caption language.
+                # SEND TO EVERY PARTICIPANT
                 # --------------------------------------
 
                 for (
@@ -708,7 +842,7 @@ async def websocket_endpoint(
 
 
 # --------------------------------------------------
-# STARTUP MESSAGE
+# STARTUP
 # --------------------------------------------------
 
 @app.on_event("startup")
@@ -717,5 +851,9 @@ async def startup_event():
     print("--------------------------------")
     print("Roundtable backend started")
     print("Ollama URL:", OLLAMA_URL)
+    print(
+        "Ollama token configured:",
+        bool(OLLAMA_TOKEN)
+    )
     print("Ollama model:", OLLAMA_MODEL)
     print("--------------------------------")
