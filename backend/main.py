@@ -27,7 +27,11 @@ app.add_middleware(
 # CONFIG
 # --------------------------------------------------
 
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
+OLLAMA_URL = os.getenv(
+    "OLLAMA_URL",
+    "http://127.0.0.1:11434/api/generate"
+)
+OLLAMA_TOKEN = os.getenv("OLLAMA_TOKEN", "")
 OLLAMA_MODEL = "translategemma:4b"
 
 
@@ -120,17 +124,21 @@ Text:
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
 
-            response = await client.post(
-                OLLAMA_URL,
-                json={
-                    "model": OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.1,
-                    },
-                },
-            )
+            headers = {}
+
+if OLLAMA_TOKEN:
+    headers["Authorization"] = f"Bearer {OLLAMA_TOKEN}"
+
+response = await client.post(
+    OLLAMA_URL,
+    headers=headers,
+    json={
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": False,
+        "options": {"temperature": 0.1},
+    },
+)
 
         print("Ollama response:", response.status_code)
 
